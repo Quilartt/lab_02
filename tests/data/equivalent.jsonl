@@ -1,0 +1,2 @@
+{"timestamp":"2026-10-06T10:00:00+00:00","level":"INFO","source":"app","message":"started"}
+{"timestamp":"2026-10-06T10:01:00+00:00","level":"ERROR","source":"db","message":"failed"}

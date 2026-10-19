@@ -1,31 +1,31 @@
 import argparse
 import csv
 import json
+import logging
 import sys
 
-from streamstats.errors import StreamStatsError, CliConfigError, UnsupportedFormatError, InvalidEventError
+from streamstats.analysis import update_stat, zero_stats
+from streamstats.errors import (
+    CliConfigError,
+    InvalidEventError,
+    StreamStatsError,
+    UnsupportedFormatError,
+)
 from streamstats.parsers import make_event
-from streamstats.analysis import update_stat
+from streamstats.report import create_report, write_report
 
-stats = {
-    "total_events": 0,
-    "by_level": {"CRITICAL": 0, 
-                 "DEBUG": 0, 
-                 "ERROR": 0, 
-                 "INFO": 0, 
-                 "WARNING": 0},
-    "by_source": {
-        "db": {"total": 0, 
-               "error": 0}},
-}
+logger = logging.getLogger("streamstats")
 
 
-def command_parser():
+def command_parser() -> argparse.ArgumentParser:
+    """Парсит аргументы командной строки"""
+
     parser = argparse.ArgumentParser(
         description="Потоковый анализатор файлов", prog="streamstats"
     )
     subparser = parser.add_subparsers(dest="command", required=True)
     analyze_parser = subparser.add_parser("analyze")
+
     analyze_parser.add_argument(
         "input_files",
         metavar="INPUT",
@@ -51,50 +51,88 @@ def command_parser():
         action="store_true",
         help="Пропускать строки с ошибками",
     )
-    return analyze_parser
+    return parser
 
 
-def main():
+def main() -> None:
+    """Основная функция для запуска программы"""
+    stats = zero_stats()
     parser = command_parser()
     args = parser.parse_args()
     if len(args.format) == 1:
-        args.format *= len(args.input_files)
+        formats = args.format * len(args.input_files)
     elif len(args.format) == len(args.input_files):
-        for path, file_number in enumerate(args.input_files, start=0):
-            
-            if path[-6:] == ".jsonl" and args.format[file_number] == "jsonl":
+        formats = args.format
+    else:
+        raise CliConfigError("Некорректное кол-во файлов")
+
+    for file_number, path in enumerate(args.input_files, start=1):
+
+        if path[-6:] == ".jsonl" and formats[file_number - 1] == "jsonl":
+            try:
                 with open(path, encoding="utf-8") as f:
                     for line_number, line in enumerate(f, start=1):
                         try:
-                            row = json.loads(line)
-                            event = make_event(row, line_number)
+                            try:
+                                row = json.loads(line)
+                            except json.JSONDecodeError as e:
+                                raise InvalidEventError(
+                                    f"Некорректная строка {line_number} в файле {file_number}"
+                                ) from e
+
+                            event = make_event(row, line_number, file_number)
                             update_stat(event, stats)
-                        except json.JSONDecodeError:
-                            raise InvalidEventError("Некорректный jsonl", line_number)
-                        
-            elif path[-4:] == ".csv" and args.format[file_number] == "csv":
-                with open(path, encoding="utf-8", newline="") as f:
+                        except StreamStatsError as e:
+                            if args.skip_invalid:
+                                logger.warning("file %s: %s", path, e)
+                                stats["skipped_invalid"] += 1
+                                continue
+                            raise
+            except OSError as e:
+                raise StreamStatsError(
+                    f"Не удалось прочитать файл {file_number}: {path}: {e}"
+                ) from e
+        elif path[-4:] == ".csv" and formats[file_number - 1] == "csv":
+            try:
+                with open(path, encoding="utf-8-sig", newline="") as f:
                     headline = f.readline()
+                    if not headline:
+                        continue
                     for csv_delimeter in [",", ";", "\t"]:
                         if csv_delimeter in headline:
                             break
                     else:
-                        raise UnsupportedFormatError(f"Неверный разделитель в файле по адресу {path}")
+                        raise UnsupportedFormatError(
+                            f"Неверный разделитель в файле {file_number}"
+                        )
 
                     f.seek(0)
                     file = csv.DictReader(f, delimiter=csv_delimeter)
-                    for line_number, line in enumerate(file, start=2) :
-                        event = make_event(line, line_number)
-                        update_stat(event, stats)
-            else:
-                raise UnsupportedFormatError(f"Неверный формат файла по адресу {path}")
-    else:
-        raise CliConfigError("Некорректное кол-во файлов")
+                    for line_number, line in enumerate(file, start=2):
+                        try:
+                            event = make_event(line, line_number, file_number)
+                            update_stat(event, stats)
+                        except StreamStatsError as e:
+                            if args.skip_invalid:
+                                logger.warning("file %s: %s", path, e)
+                                stats["skipped_invalid"] += 1
+                                continue
+                            raise
+            except OSError as e:
+                raise StreamStatsError(
+                    f"Не удалось прочитать файл {file_number}: {path}: {e}"
+                ) from e
+    report = create_report(stats)
+    write_report(report, args.output)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.WARNING, 
+        format="%(levelname)s: %(message)s")
     try:
         main()
     except StreamStatsError as e:
-        print(e.__class__, e, file=sys.stderr)
+        print(f"streamstats: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(2)
+    
