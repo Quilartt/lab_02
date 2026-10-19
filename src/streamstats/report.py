@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+from streamstats.errors import StreamStatsError
+
 
 def create_report(stats: dict[str, Any]) -> dict[str, Any]:
     """Собирает dict для JSON-отчёта,"""
@@ -26,6 +28,9 @@ def write_report(report: dict[str, Any], output: str | None) -> None:
     if output is None:
         print(text)
     else:
-        with open(output, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.write("\n")
+        try:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.write("\n")
+        except OSError as e:
+            raise StreamStatsError(f"Не удалось записать отчёт в {output}: {e}") from e

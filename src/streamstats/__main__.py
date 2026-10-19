@@ -70,7 +70,7 @@ def main() -> None:
 
         if path[-6:] == ".jsonl" and formats[file_number - 1] == "jsonl":
             try:
-                with open(path, encoding="utf-8") as f:
+                with open(path, encoding="utf-8-sig") as f:
                     for line_number, line in enumerate(f, start=1):
                         try:
                             try:
@@ -83,12 +83,13 @@ def main() -> None:
                             event = make_event(row, line_number, file_number)
                             update_stat(event, stats)
                         except StreamStatsError as e:
+                            # --skip-invalid: битые строки пропускаем, но пишем WARNING
                             if args.skip_invalid:
                                 logger.warning("file %s: %s", path, e)
                                 stats["skipped_invalid"] += 1
                                 continue
                             raise
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 raise StreamStatsError(
                     f"Не удалось прочитать файл {file_number}: {path}: {e}"
                 ) from e
@@ -98,8 +99,8 @@ def main() -> None:
                     headline = f.readline()
                     if not headline:
                         continue
-                    for csv_delimeter in [",", ";", "\t"]:
-                        if csv_delimeter in headline:
+                    for csv_delimiter in [",", ";", "\t"]:
+                        if csv_delimiter in headline:
                             break
                     else:
                         raise UnsupportedFormatError(
@@ -107,18 +108,19 @@ def main() -> None:
                         )
 
                     f.seek(0)
-                    file = csv.DictReader(f, delimiter=csv_delimeter)
+                    file = csv.DictReader(f, delimiter=csv_delimiter)
                     for line_number, line in enumerate(file, start=2):
                         try:
                             event = make_event(line, line_number, file_number)
                             update_stat(event, stats)
                         except StreamStatsError as e:
+                            # --skip-invalid: битые строки пропускаем, но пишем WARNING
                             if args.skip_invalid:
                                 logger.warning("file %s: %s", path, e)
                                 stats["skipped_invalid"] += 1
                                 continue
                             raise
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 raise StreamStatsError(
                     f"Не удалось прочитать файл {file_number}: {path}: {e}"
                 ) from e
