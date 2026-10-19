@@ -18,7 +18,7 @@ def make_event(
 
     if not isinstance(timestamp_raw, str) or not timestamp_raw:
         raise InvalidTimestampError(
-            f"Некорректная дата время, строка {line_number} в файле {file_number}"
+            f"Поле 'timestamp': некорректное значение '{timestamp_raw}', строка {line_number}, файл {file_number}"
         )
     if level_raw not in ["CRITICAL", 
                          "DEBUG", 
@@ -26,21 +26,21 @@ def make_event(
                          "INFO", 
                          "WARNING"]:
         raise InvalidEventError(
-            f"Неверное состояние события, строка {line_number} в файле {file_number}"
+            f"Поле 'level': некорректное значение '{level_raw}', строка {line_number} в файле {file_number}"
         )
     else:
         level = level_raw
 
     if not isinstance(source_raw, str) or not source_raw:
         raise InvalidEventError(
-            f"Некорректный источник данных, строка {line_number} в файле {file_number}"
+            f"Поле 'source': некорректное значение '{source_raw}', строка {line_number} в файле {file_number}"
         )
     else:
         source = source_raw
 
     if not isinstance(message_raw, str):
         raise InvalidEventError(
-            f"Некорректное сообщение, строка {line_number} в файле {file_number}")
+            f"Некорректное сообщение {message_raw}, строка {line_number} в файле {file_number}")
     else:
         message = message_raw
 
